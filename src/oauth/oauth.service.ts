@@ -1,3 +1,4 @@
+import { error } from "console";
 import { db } from "../utils/db.server";
 import * as bcrypt from 'bcrypt';
 import * as dotenv from "dotenv";
@@ -123,3 +124,47 @@ export const logout = async (refreshToken: string): Promise<void> => {
 
     client.del(refreshToken);
 }
+
+export const login = async (user: User): Promise<UserResponse> => {
+    const { email, password } = user;
+
+    const savedUser = await db.user.findUnique({ where: { email } });
+
+    if (!savedUser) {
+        throw new Error("User not found");
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, savedUser.password);
+
+    if (!isPasswordValid) {
+        throw new Error("Wrong password");
+    }
+
+    // Generate a new access token
+    const accessToken = jwt.sign({ userId: savedUser.id }, secret, {
+        expiresIn: '15m',
+    });
+
+    // Generate refresh token
+    const refreshToken = jwt.sign({ userId: savedUser.id }, secret, {
+        expiresIn: '2d',
+    });
+
+    // Save the refresh token in Redis with 2-day expiration
+    try {
+        if (client.status === 'end') {
+            console.error('Redis client is closed. Cannot perform operations.');
+        } else {
+            await client.set(refreshToken, savedUser.id.toString(), { EX: 60 * 60 * 24 * 2 });
+            console.log('Refresh token stored in Redis.');
+        }
+    } catch (error: any) {
+        console.error("Error storing refresh token in Redis:", error.message);
+    }
+
+    return {
+        user: savedUser,
+        accessToken,
+        refreshToken,
+    };
+};

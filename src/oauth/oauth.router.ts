@@ -5,7 +5,7 @@ import * as OauthService from "./oauth.service";
 export const oauthRouter = express.Router();
 
 oauthRouter.post(
-  "/login",
+  "/sign_up",
   body("email").isString(),
   body("password").isString(),
   body("confirm_password").isString(),
@@ -92,3 +92,37 @@ oauthRouter.post("/logout",
         }
     }
 );
+
+oauthRouter.post(
+  "/login",
+  body("email").isString(),
+  body("password").isString(),
+  async (req: Request, resp: Response) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return resp.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const user = req.body;
+
+      const { user: newUser, accessToken } = await OauthService.login(user);
+
+      const { id, email } = newUser;
+
+      // Set the access token as a cookie in the response
+        resp.cookie("access_token", accessToken, {
+          expires: new Date(Date.now() + 15 * 60 * 1000),
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+        });
+
+        return resp.status(200).json({ id, email });
+    } catch (error: any) {
+      console.error("Error during user creation:", error);
+      return resp.status(500).json({ error: error.message });
+    }
+  }
+);
+

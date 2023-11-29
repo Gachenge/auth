@@ -33,6 +33,12 @@ client.connect();
 export const createUser = async (user: User): Promise<UserResponse> => {
     let { email, password } = user;
 
+    const userExist = await db.user.findUnique({ where: { email }})
+    if (userExist) {
+        console.error("User already registered")
+        throw new Error("User is already registered")
+    }
+
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 

@@ -1,93 +1,75 @@
 import express, { Request, Response } from "express";
 import { body, cookie, validationResult } from "express-validator";
 import * as OauthService from "./oauth.service";
+import { validateLogin, validateLogout, validateSignup, validateToken } from "./oauth.validation";
 
 export const oauthRouter = express.Router();
 
-const signUpValidationMiddleware = [
-  body("email").isEmail(),
-  body("password").isStrongPassword(),
-  body("confirm_password"),
-];
-
-const refreshValidationMiddleware = [
-  body("token").isString(),
-];
-
-const logoutValidationMiddleware = [
-  body("refreshToken").isString(),
-  body("accessToken").isString(),
-]
-
-const loginValidationMiddleware = [
-  body("email").isEmail(),
-  body("password").isString(),
-]
-
 oauthRouter.post(
-  "/sign_up",
-  signUpValidationMiddleware,
-  async (req: Request, resp: Response) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return resp.status(400).json({ errors: errors.array() });
-    }
-
+  "/sign_up", async (req: Request, resp: Response) => {    
     try {
-      const user = req.body;
+      const result = validateSignup(req.body)
 
-      if (user.password === user.confirm_password) {
-        const { user: newUser, accessToken } = await OauthService.createUser(user);
-
-        const { id, email } = newUser;
-
-        // Set the access token as a cookie in the response
-        resp.cookie("access_token", accessToken, {
-          expires: new Date(Date.now() + 15 * 60 * 1000),
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-        });
-
-        return resp.status(200).json({ success:true, id, email });
-      } else {
-        return resp.status(400).json({ error: "Passwords do not match" });
+      if (result.error) {
+        return resp.status(400).json({ error: result.error.details })
       }
+
+      const user = result.value
+
+      const { user: newUser, accessToken } = await OauthService.createUser(user);
+
+      const { id, email } = newUser;
+
+      // Set the access token as a cookie in the response
+      resp.cookie("access_token", accessToken, {
+        expires: new Date(Date.now() + 15 * 60 * 1000),
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+      });
+
+      return resp.status(200).json({ success:true, id, email });
+
     } catch (error: any) {
       if (error.message === "Email is already registered") {
         return resp.status(400).json({ error: "Email is already registered" });
+
       } else if (error.message === "Redis client is closed. Cannot perform operations.") {
         return resp.status(500).json({ error: "Redis client is closed. Cannot perform operations."});
+
       } else if (error.message === "Error storing refresh token in Redis") {
         return resp.status(500).json({ error: `Error storing refresh token in Redis: ${error.message}`})
+
       }
       return resp.status(500).json({ error: error.message });
     }
   }
 );
 
-oauthRouter.post("/refresh", refreshValidationMiddleware, async (req: Request, resp: Response) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-      return resp.status(400).json({ errors: errors.array() });
-  }
-
+oauthRouter.post("/refresh", async (req: Request, resp: Response) => {
   try {
-      const token: { token: string } = req.body;
+    const result = validateToken(req.body);
+    if (result.error) {
+      return resp.status(400).json({ error: result.error.details })
+    }
 
-      const { accessToken, user } = await OauthService.refresh(token.token);
+    const token: { token: string } = result.value
 
-      resp.cookie("access_token", accessToken, {
-          expires: new Date(Date.now() + 15 * 60 * 1000),
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-      });
+    const { accessToken, user } = await OauthService.refresh(token.token);
+
+    resp.cookie("access_token", accessToken, {
+        expires: new Date(Date.now() + 15 * 60 * 1000),
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+    });
 
       return resp.status(200).json({ user });
+
   } catch (error: any) {
     if (error.message === "Error getting data from Redis") {
       return resp.status(500).json(`Error getting data from Redis: ${error.message}`)
+
     } else if (error.message === "Invalid token") {
       return resp.status(401).json(`Invalid token: ${error.message}`)
     }
@@ -95,43 +77,42 @@ oauthRouter.post("/refresh", refreshValidationMiddleware, async (req: Request, r
   }
 });
 
-oauthRouter.post("/logout", logoutValidationMiddleware,
-    async (req: Request, resp: Response) => {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return resp.status(400).json({ errors: errors.array() });
-        }
+oauthRouter.post("/logout", async (req: Request, resp: Response) => {
+    try {
 
-        try {
-            const { refreshToken, accessToken } = req.body;
+      const result = validateLogout(req.body)
+      if (result.error) {
+        return resp.status(400).json({ error: result.error.details })
+      }
 
-            await OauthService.logout(refreshToken);
+      const { refreshToken, accessToken } = result.value;
 
-            // Clear the access token cookie in the response
-            resp.clearCookie("access_token");
+      await OauthService.logout(refreshToken);
 
-            return resp.status(200).json({ success: true, message: "Logout successful" });
-        } catch (error: any) {
-          if (error.message === "Invalid or expired refresh token") {
-            return resp.status(401).json("Invalid or expired token")
-          } else if (error.message === "Invalid token. User not found") {
-            return resp.status(404).json("Invalid token. User not found")
-          }
-            return resp.status(500).json({ error: error.message });
-        }
+      // Clear the access token cookie in the response
+      resp.clearCookie("access_token");
+
+      return resp.status(200).json({ success: true, message: "Logout successful" });
+    } catch (error: any) {
+      if (error.message === "Invalid or expired refresh token") {
+        return resp.status(401).json("Invalid or expired token")
+      } else if (error.message === "Invalid token. User not found") {
+        return resp.status(404).json("Invalid token. User not found")
+      }
+        return resp.status(500).json({ error: error.message });
     }
-);
+  }
+  );
 
 oauthRouter.post(
-  "/login", loginValidationMiddleware,
-  async (req: Request, resp: Response) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return resp.status(400).json({ errors: errors.array() });
-    }
-
+  "/login", async (req: Request, resp: Response) => {
     try {
-      const user = req.body;
+      const result = validateLogin(req.body)
+
+      if (result.error) {
+        return resp.status(400).json({ error: result.error.details })
+      }
+      const user = result.value;
 
       const { user: newUser, accessToken } = await OauthService.login(user);
 

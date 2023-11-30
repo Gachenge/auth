@@ -4,11 +4,29 @@ import * as OauthService from "./oauth.service";
 
 export const oauthRouter = express.Router();
 
-oauthRouter.post(
-  "/sign_up",
+const signUpValidationMiddleware = [
   body("email").isEmail(),
   body("password").isStrongPassword(),
   body("confirm_password"),
+];
+
+const refreshValidationMiddleware = [
+  body("token").isString(),
+];
+
+const logoutValidationMiddleware = [
+  body("refreshToken").isString(),
+  body("accessToken").isString(),
+]
+
+const loginValidationMiddleware = [
+  body("email").isEmail(),
+  body("password").isString(),
+]
+
+oauthRouter.post(
+  "/sign_up",
+  signUpValidationMiddleware,
   async (req: Request, resp: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -31,18 +49,24 @@ oauthRouter.post(
           sameSite: "lax",
         });
 
-        return resp.status(200).json({ id, email });
+        return resp.status(200).json({ success:true, id, email });
       } else {
         return resp.status(400).json({ error: "Passwords do not match" });
       }
     } catch (error: any) {
-      console.error("Error during user creation:", error);
+      if (error.message === "Email is already registered") {
+        return resp.status(400).json({ error: "Email is already registered" });
+      } else if (error.message === "Redis client is closed. Cannot perform operations.") {
+        return resp.status(500).json({ error: "Redis client is closed. Cannot perform operations."});
+      } else if (error.message === "Error storing refresh token in Redis") {
+        return resp.status(500).json({ error: `Error storing refresh token in Redis: ${error.message}`})
+      }
       return resp.status(500).json({ error: error.message });
     }
   }
 );
 
-oauthRouter.post("/refresh", body("token").isString(), async (req: Request, resp: Response) => {
+oauthRouter.post("/refresh", refreshValidationMiddleware, async (req: Request, resp: Response) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
       return resp.status(400).json({ errors: errors.array() });
@@ -62,14 +86,16 @@ oauthRouter.post("/refresh", body("token").isString(), async (req: Request, resp
 
       return resp.status(200).json({ user });
   } catch (error: any) {
-      console.error("Error during token refresh:", error);
+    if (error.message === "Error getting data from Redis") {
+      return resp.status(500).json(`Error getting data from Redis: ${error.message}`)
+    } else if (error.message === "Invalid token") {
+      return resp.status(401).json(`Invalid token: ${error.message}`)
+    }
       return resp.status(500).json({ error: error.message });
   }
 });
 
-oauthRouter.post("/logout", 
-    body("refreshToken").isString(),
-    body("accessToken").isString(),
+oauthRouter.post("/logout", logoutValidationMiddleware,
     async (req: Request, resp: Response) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -84,18 +110,20 @@ oauthRouter.post("/logout",
             // Clear the access token cookie in the response
             resp.clearCookie("access_token");
 
-            return resp.status(200).json({ message: "Logout successful" });
+            return resp.status(200).json({ success: true, message: "Logout successful" });
         } catch (error: any) {
-            console.error("Error during logout:", error);
+          if (error.message === "Invalid or expired refresh token") {
+            return resp.status(401).json("Invalid or expired token")
+          } else if (error.message === "Invalid token. User not found") {
+            return resp.status(404).json("Invalid token. User not found")
+          }
             return resp.status(500).json({ error: error.message });
         }
     }
 );
 
 oauthRouter.post(
-  "/login",
-  body("email").isEmail(),
-  body("password").isString(),
+  "/login", loginValidationMiddleware,
   async (req: Request, resp: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -117,11 +145,14 @@ oauthRouter.post(
           sameSite: "lax",
         });
 
-        return resp.status(200).json({ id, email });
+        return resp.status(200).json({ success: true, id, email });
     } catch (error: any) {
-      console.error("Error during user creation:", error);
+      if (error.message === "User not found") {
+        return resp.status(404).json("User not found")
+      } else if (error.message === "Wrong password") {
+        return resp.status(401).json("Wrong password")
+      }
       return resp.status(500).json({ error: error.message });
     }
   }
 );
-

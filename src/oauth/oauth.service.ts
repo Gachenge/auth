@@ -1,9 +1,9 @@
-import { error } from "console";
 import { db } from "../utils/db.server";
 import * as bcrypt from 'bcrypt';
 import * as dotenv from "dotenv";
 import jwt from 'jsonwebtoken';
-import { createClient } from 'redis';
+import { InvalidToken, RedisClosed, UnexpectedError, UserAlreadyRegistered, UserNotFound, WrongPassword } from "../../errors";
+import { client } from "../index"
 
 dotenv.config();
 
@@ -20,23 +20,13 @@ type UserResponse = {
 }
 
 const secret: string = process.env.SECRET || "supersecret";
-const client: any = createClient({
-    password: process.env.REDIS_PASSWORD,
-    socket: {
-        host: 'redis-18566.c251.east-us-mz.azure.cloud.redislabs.com',
-        port: 18566
-    }
-});
-
-client.connect();
 
 export const createUser = async (user: User): Promise<UserResponse> => {
     let { email, password } = user;
 
     const userExist = await db.user.findUnique({ where: { email }})
     if (userExist) {
-        console.error("User already registered")
-        throw new Error("User is already registered")
+        throw new UserAlreadyRegistered()
     }
 
     // Hash the password
@@ -67,13 +57,13 @@ export const createUser = async (user: User): Promise<UserResponse> => {
     // Save the refresh token in Redis with  2-day expiration
     try {
         if (client.status === 'end') {
-            console.error('Redis client is closed. Cannot perform operations.');
+            throw new RedisClosed()
         } else {
             await client.set(refreshToken, createdUser.id.toString(), { EX: 60 * 60 * 24 * 2 });
             console.log('Refresh token stored in Redis.');
         }
     } catch (error: any) {
-        console.error("Error storing refresh token in Redis:", error.message);
+        throw new UnexpectedError()
     }
 
     return {
@@ -90,14 +80,13 @@ export const refresh = async (token: string): Promise<Omit<UserResponse, "refres
         try {
             userId = await client.get(token);
         } catch (error: any) {
-            console.error('Error getting data from Redis:', error);
-            throw new Error('Error getting data from Redis');
+            throw new UnexpectedError()
         }
 
         const user = await db.user.findUnique({ where: { id: parseInt(userId, 10) } });
 
         if (!user) {
-            throw new Error("Invalid token");
+            throw new InvalidToken()
         }
 
         // Generate a new access token
@@ -110,8 +99,7 @@ export const refresh = async (token: string): Promise<Omit<UserResponse, "refres
             user: user,
         };
     } catch (error: any) {
-        console.error('Error during refresh:', error.message);
-        throw new Error('Error during refresh');
+        throw new UnexpectedError()
     }
 };
 
@@ -119,13 +107,13 @@ export const logout = async (refreshToken: string): Promise<void> => {
     const userId = await client.get(refreshToken);
 
     if (!userId) {
-        throw new Error("Invalid or expired refresh token");
+        throw new InvalidToken()
     }
 
     const user = await db.user.findUnique({ where: { id: parseInt(userId, 10) } });
 
     if (!user) {
-        throw new Error("Invalid token. User not found");
+        throw new UserNotFound()
     }
 
     client.del(refreshToken);
@@ -137,13 +125,13 @@ export const login = async (user: User): Promise<UserResponse> => {
     const savedUser = await db.user.findUnique({ where: { email } });
 
     if (!savedUser) {
-        throw new Error("User not found");
+        throw new UserNotFound()
     }
 
     const isPasswordValid = await bcrypt.compare(password, savedUser.password);
 
     if (!isPasswordValid) {
-        throw new Error("Wrong password");
+        throw new WrongPassword()
     }
 
     // Generate a new access token
@@ -159,13 +147,13 @@ export const login = async (user: User): Promise<UserResponse> => {
     // Save the refresh token in Redis with 2-day expiration
     try {
         if (client.status === 'end') {
-            console.error('Redis client is closed. Cannot perform operations.');
+            throw new RedisClosed()
         } else {
             await client.set(refreshToken, savedUser.id.toString(), { EX: 60 * 60 * 24 * 2 });
             console.log('Refresh token stored in Redis.');
         }
     } catch (error: any) {
-        console.error("Error storing refresh token in Redis:", error.message);
+        throw new UnexpectedError()
     }
 
     return {

@@ -6,9 +6,9 @@ export const oauthRouter = express.Router();
 
 oauthRouter.post(
   "/sign_up",
-  body("email").isString(),
-  body("password").isString(),
-  body("confirm_password").isString(),
+  body("email").isEmail(),
+  body("password").isStrongPassword(),
+  body("confirm_password"),
   async (req: Request, resp: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -41,7 +41,6 @@ oauthRouter.post(
     }
   }
 );
-
 
 oauthRouter.post("/refresh", body("token").isString(), async (req: Request, resp: Response) => {
   const errors = validationResult(req);
@@ -95,7 +94,7 @@ oauthRouter.post("/logout",
 
 oauthRouter.post(
   "/login",
-  body("email").isString(),
+  body("email").isEmail(),
   body("password").isString(),
   async (req: Request, resp: Response) => {
     const errors = validationResult(req);

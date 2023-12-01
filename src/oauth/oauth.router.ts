@@ -1,5 +1,4 @@
 import express, { Request, Response } from "express";
-import { body, cookie, validationResult } from "express-validator";
 import * as OauthService from "./oauth.service";
 import { validateLogin, validateLogout, validateSignup, validateToken } from "./oauth.validation";
 
@@ -13,7 +12,6 @@ oauthRouter.post(
       if (result.error) {
         return resp.status(400).json({ error: result.error.details })
       }
-
       const user = result.value
 
       const { user: newUser, accessToken } = await OauthService.createUser(user);
@@ -112,6 +110,7 @@ oauthRouter.post(
       if (result.error) {
         return resp.status(400).json({ error: result.error.details })
       }
+      console.log(result.warning)
       const user = result.value;
 
       const { user: newUser, accessToken } = await OauthService.login(user);

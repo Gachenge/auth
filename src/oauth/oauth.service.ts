@@ -2,7 +2,7 @@ import { db } from "../utils/db.server";
 import * as bcrypt from 'bcrypt';
 import * as dotenv from "dotenv";
 import jwt from 'jsonwebtoken';
-import { InvalidToken, RedisClosed, UnexpectedError, UserAlreadyRegistered, UserNotFound, WrongPassword } from "../../errors";
+import { InvalidToken, RedisClosed, UnexpectedError, UserAlreadyRegistered, UserNotFound, WrongPassword } from "../utils/errors";
 import { redis } from "../utils/redis";
 
 dotenv.config();

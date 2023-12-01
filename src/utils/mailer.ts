@@ -1,6 +1,6 @@
 import * as dotenv from 'dotenv';
 import * as FormData from 'form-data';
-import Mailgun from 'mailgun.js'; // Change import statement
+import Mailgun from 'mailgun.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -8,7 +8,6 @@ dotenv.config();
 const formData = new FormData();
 const mailgun = new Mailgun(formData);
 
-// Replace 'yourkeyhere' with your actual Mailgun API key
 const mg = mailgun.client({ username: 'api', key: process.env.MAILGUN_API_KEY || 'yourkeyhere' });
 
 mg.messages.create('sandbox-123.mailgun.org', {
